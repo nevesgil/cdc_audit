@@ -1,0 +1,24 @@
+
+
+
+
+$ curl -X POST -H "Content-Type: application/json" \
+     --data '{
+       "name": "source-db-connector",
+       "config": {
+         "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+         "database.hostname": "postgres",
+         "database.port": "5432",
+         "database.user": "admin",
+         "database.password": "admin",
+         "database.dbname": "source_db",
+         "database.server.name": "source_server",
+         "table.include.list": "public.customers,public.products",
+         "plugin.name": "pgoutput",
+         "slot.name": "debezium_slot",
+         "publication.name": "debezium_publication"
+       }
+     }' \
+     http://localhost:8083/connectors
+
+$ curl http://localhost:8083/connectors/source-db-connector/status

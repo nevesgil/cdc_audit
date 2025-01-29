@@ -1,0 +1,100 @@
+version: '3.8'
+
+services:
+  zookeeper:
+    image: quay.io/debezium/zookeeper:1.9 
+    ports:
+      - "2181:2181"
+    networks:
+      - cdc_network
+
+  kafka:
+    image: quay.io/debezium/kafka:1.9 
+    depends_on:
+      - zookeeper
+    environment:
+      ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_BROKER_ID: 1
+      KAFKA_CFG_LISTENERS: INTERNAL://:9092,EXTERNAL://0.0.0.0:29092
+      KAFKA_CFG_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:29092
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      ALLOW_PLAINTEXT_LISTENER: 'yes'
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    networks:
+      - cdc_network
+
+  connect:
+    image: quay.io/debezium/connect:1.9 
+    ports:
+      - "8083:8083" 
+    environment:
+      BOOTSTRAP_SERVERS: kafka:9092
+      GROUP_ID: 1
+      CONFIG_STORAGE_TOPIC: my_connect_configs
+      OFFSET_STORAGE_TOPIC: my_connect_offsets
+      STATUS_STORAGE_TOPIC: my_connect_status
+    depends_on:
+      - kafka
+    networks:
+      - cdc_network
+
+  debezium-ui:
+    image: quay.io/debezium/debezium-ui:1.9 
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CONNECT_URIS: http://connect:8083
+    depends_on:
+      - connect
+    networks:
+      - cdc_network
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    depends_on:
+      - kafka
+    ports:
+      - "8082:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+    networks:
+      - cdc_network
+
+  postgres:
+    image: postgres
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: database
+    command: >
+      postgres -c wal_level=logical
+               -c max_wal_senders=10
+               -c wal_keep_size=64MB
+               -c hot_standby=on
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./data/database/postgres_data:/var/lib/postgresql/data
+      - ./data/database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - cdc_network
+
+  pgadmin:
+    image: dpage/pgadmin4
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@pgadmin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    networks:
+      - cdc_network
+
+networks:
+  cdc_network:
+    driver: bridge

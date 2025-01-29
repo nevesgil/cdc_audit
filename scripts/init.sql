@@ -1,0 +1,2 @@
+CREATE DATABASE source_db;
+CREATE DATABASE sink_db;
