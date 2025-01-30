@@ -1,14 +1,15 @@
-{
+  {
     "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
     "database.user": "admin",
     "database.dbname": "source_db",
     "slot.name": "debezium_slot",
+    "publication.name": "debezium_publication",
+    "database.server.name": "source_server",
+    "database.port": "5432",
+    "plugin.name": "pgoutput",
     "database.hostname": "postgres",
     "database.password": "*****",
-    "publication.name": "debezium_publication",
     "name": "source-db-connector",
-    "database.server.name": "source_server",
     "table.include.list": "public.customers,public.products",
-    "database.port": "5432",
-    "plugin.name": "pgoutput"
+    "snapshot.mode": "initial"
   }

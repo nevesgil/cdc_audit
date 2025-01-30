@@ -2,7 +2,7 @@ import signal
 import json
 from datetime import datetime
 from confluent_kafka import Consumer, KafkaError, TopicPartition, OFFSET_BEGINNING
-from db.db import Session, KafkaOffset, WeatherData, engine
+from db.db import Session, KafkaOffset, AuditLogging, engine
 import logging
 from time import time
 
@@ -15,7 +15,7 @@ logging.basicConfig(
 # Kafka Consumer Configuration
 consumer_config = {
     "bootstrap.servers": "localhost:29092",
-    "group.id": "weather_consumer_group",
+    "group.id": "audit_consumer_group",
     "auto.offset.reset": "earliest",
     "enable.auto.commit": False,
 }
@@ -26,14 +26,26 @@ shutdown_flag = False
 
 def transform_message(message):
     data = json.loads(message.value().decode("utf-8"))
-    current_weather = data.get("current_weather", {})
-    return WeatherData(
-        timestamp=datetime.now(),
-        temperature=current_weather.get("temperature"),
-        windspeed=current_weather.get("windspeed"),
-        winddirection=current_weather.get("winddirection"),
-        weathercode=current_weather.get("weathercode"),
+    
+    # from the message
+    operation_type = data.get("payload", {}).get("op")  # 'c' for create, 'u' for update, 'd' for delete
+    source_table = data.get("payload", {}).get("source", {}).get("table")
+    change_timestamp = data.get("payload", {}).get("ts_ms") 
+    old_data = data.get("payload", {}).get("before")  
+    new_data = data.get("payload", {}).get("after")  
+    change_user = None  # not in use
+
+    # AuditLogging instance
+    audit_log = AuditLogging(
+        source_table=source_table,
+        operation_type=operation_type,
+        change_timestamp=change_timestamp,
+        old_data=old_data,
+        new_data=new_data,
+        change_user=change_user
     )
+
+    return audit_log
 
 
 def get_latest_offset(session, topic, partition):
@@ -55,8 +67,8 @@ def update_offset(session, topic, partition, offset):
     session.commit()
 
 
-def process_data(session, weather_data):
-    session.add(weather_data)
+def process_data(session, audit_data):
+    session.add(audit_data)
     session.commit()
 
 
@@ -69,7 +81,7 @@ def consume_messages():
     empty_poll_count = 0
 
     try:
-        # Get partitions and assign specific offsets
+        # get partitions and assign specific offsets
         partitions = (
             consumer.list_topics("weather-topic").topics["weather-topic"].partitions
         )
@@ -80,9 +92,9 @@ def consume_messages():
             last_offset = get_latest_offset(session, "weather-topic", partition)
             print(f"Last offset for partition {partition}: {last_offset}")
             if last_offset is not None:
-                tp.offset = last_offset  # Start from the last unprocessed offset
+                tp.offset = last_offset  # start from the last unprocessed offset
             else:
-                tp.offset = OFFSET_BEGINNING  # Start from the beginning
+                tp.offset = OFFSET_BEGINNING  # start from the beginning
             topic_partitions.append(tp)
 
         # Assign partitions to the consumer
@@ -118,8 +130,8 @@ def consume_messages():
             )
 
             try:
-                weather_data = transform_message(msg)
-                process_data(session, weather_data)
+                audit_data = transform_message(msg)
+                process_data(session, audit_data)
                 # Update the last processed offset
                 update_offset(session, msg.topic(), msg.partition(), msg.offset() + 1)
             except Exception as e:
