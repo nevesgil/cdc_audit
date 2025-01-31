@@ -83,13 +83,13 @@ def consume_messages():
     try:
         # get partitions and assign specific offsets
         partitions = (
-            consumer.list_topics("weather-topic").topics["weather-topic"].partitions
+            consumer.list_topics("source_db.public.roles").topics["source_db.public.roles"].partitions
         )
         topic_partitions = []
 
         for partition in partitions:
-            tp = TopicPartition("weather-topic", partition)
-            last_offset = get_latest_offset(session, "weather-topic", partition)
+            tp = TopicPartition("source_db.public.roles", partition)
+            last_offset = get_latest_offset(session, "source_db.public.roles", partition)
             print(f"Last offset for partition {partition}: {last_offset}")
             if last_offset is not None:
                 tp.offset = last_offset  # start from the last unprocessed offset

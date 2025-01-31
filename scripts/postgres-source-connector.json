@@ -1,15 +1,19 @@
-  {
-    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
-    "database.user": "admin",
-    "database.dbname": "source_db",
-    "slot.name": "debezium_slot",
-    "publication.name": "debezium_publication",
-    "database.server.name": "source_server",
-    "database.port": "5432",
-    "plugin.name": "pgoutput",
-    "database.hostname": "postgres",
-    "database.password": "*****",
-    "name": "source-db-connector",
-    "table.include.list": "public.customers,public.products",
-    "snapshot.mode": "initial"
-  }
+{
+  "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+  "connector.displayName": "PostgreSQL",
+  "database.user": "admin",
+  "database.dbname": "source_db",
+  "include.before.image": "true",
+  "slot.name": "debezium_slot",
+  "publication.name": "debezium_publication",
+  "database.server.name": "source_server",
+  "connector.id": "postgres",
+  "database.port": "5432",
+  "plugin.name": "pgoutput",
+  "topic.prefix": "source_db",
+  "database.hostname": "postgres",
+  "database.password": "*****",
+  "name": "source-db-connector",
+  "table.include.list": "public.people,public.roles",
+  "snapshot.mode": "initial"
+}

@@ -1,4 +1,5 @@
 ### SETUP source_db CONNECTOR
+
 curl -X POST -H "Content-Type: application/json" \
      --data '{
        "name": "source-db-connector",
@@ -14,11 +15,13 @@ curl -X POST -H "Content-Type: application/json" \
          "plugin.name": "pgoutput",
          "slot.name": "debezium_slot",
          "publication.name": "debezium_publication",
-         "snapshot.mode": "never",
-         "include.before.image": "true"
+         "snapshot.mode": "initial",
+         "include.before.image": "true",
+         "topic.prefix": "source_db"
        }
      }' \
      http://localhost:8083/connectors
 
 
-$ curl http://localhost:8083/connectors/source-db-connector/status
+
+curl http://localhost:8083/connectors/source-db-connector/status
