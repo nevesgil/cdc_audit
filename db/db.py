@@ -16,7 +16,9 @@ import enum
 import os
 
 # Use environment variables for database credentials
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://admin:admin@localhost:5432/sink_db")
+DATABASE_URL = os.getenv(
+    "DATABASE_URL", "postgresql://admin:admin@localhost:5432/sink_db"
+)
 
 engine = create_engine(DATABASE_URL)
 

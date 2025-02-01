@@ -17,15 +17,17 @@ consumer_config = {
     "bootstrap.servers": "localhost:29092",
     "group.id": "audit_consumer_group",
     "auto.offset.reset": "earliest",
-    #"enable.auto.commit": False,
+    # "enable.auto.commit": False,
 }
 
 # Global flag for graceful shutdown
 shutdown_flag = False
 
+
 def convert_op(op):
     """Convert Debezium operation type to SQL operation type."""
     return {"c": "INSERT", "u": "UPDATE", "d": "DELETE"}.get(op, "UNKNOWN")
+
 
 def transform_message(message):
     data = json.loads(message.value().decode("utf-8"))
@@ -36,7 +38,7 @@ def transform_message(message):
     # Extract relevant fields
     operation_type = convert_op(payload.get("op", ""))
     source_table = source.get("table", "unknown_table")
-    
+
     # Convert timestamp from milliseconds to datetime
     ts_ms = payload.get("ts_ms", 0)
     change_timestamp = datetime.utcfromtimestamp(ts_ms / 1000.0) if ts_ms else None
@@ -51,7 +53,7 @@ def transform_message(message):
         change_timestamp=change_timestamp,
         old_data=old_data,
         new_data=new_data,
-        change_user=change_user
+        change_user=change_user,
     )
 
 
@@ -88,11 +90,9 @@ def consume_messages():
     empty_poll_count = 0
 
     try:
-        for ttp in ['source_db.public.roles', 'source_db.public.people']:
+        for ttp in ["source_db.public.roles", "source_db.public.people"]:
             # get partitions and assign specific offsets
-            partitions = (
-                consumer.list_topics(ttp).topics[ttp].partitions
-            )
+            partitions = consumer.list_topics(ttp).topics[ttp].partitions
             topic_partitions = []
 
             for partition in partitions:
@@ -141,7 +141,9 @@ def consume_messages():
                     audit_data = transform_message(msg)
                     process_data(session, audit_data)
                     # Update the last processed offset
-                    update_offset(session, msg.topic(), msg.partition(), msg.offset() + 1)
+                    update_offset(
+                        session, msg.topic(), msg.partition(), msg.offset() + 1
+                    )
                 except Exception as e:
                     logging.error(f"Error processing message: {e}")
 
