@@ -59,9 +59,6 @@ class KafkaOffset(Base):
     offset = Column(BigInteger, nullable=False)
     timestamp = Column(DateTime, default=func.now(), nullable=False)
 
-    # Unique constraint for topic-partition pairs
-    __table_args__ = (UniqueConstraint("topic", "partition", name="unique_topic_partition"),)
-
     def __repr__(self):
         return (
             f"<KafkaOffset(id={self.id}, topic={self.topic}, partition={self.partition}, "
