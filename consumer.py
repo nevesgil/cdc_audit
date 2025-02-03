@@ -6,13 +6,13 @@ from db.db import Session, KafkaOffset, AuditLogging, engine
 import logging
 from time import time
 
-# Logging setup
+# logging setup
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
 
-# Kafka Consumer Configuration
+# Kafka Consumer configuration
 consumer_config = {
     "bootstrap.servers": "localhost:29092",
     "group.id": "audit_consumer_group",
@@ -35,7 +35,7 @@ def transform_message(message):
     payload = data.get("payload", {})
     source = payload.get("source", {})
 
-    # Extract relevant fields
+    # get fields
     operation_type = convert_op(payload.get("op", ""))
     source_table = source.get("table", "unknown_table")
 
@@ -45,7 +45,7 @@ def transform_message(message):
 
     old_data = json.dumps(payload.get("before")) if payload.get("before") else None
     new_data = json.dumps(payload.get("after")) if payload.get("after") else None
-    change_user = None  # Debezium does not provide user info
+    change_user = None  # at the moment I do not have user info
 
     return AuditLogging(
         source_table=source_table,

@@ -6,16 +6,16 @@ from sqlalchemy import (
     JSON,
     Enum,
     DateTime,
-    BigInteger,
-    UniqueConstraint,
+    BigInteger
 )
+
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.sql import func
 import enum
 import os
 
-# Use environment variables for database credentials
+# env variables for database credentials
 DATABASE_URL = os.getenv(
     "DATABASE_URL", "postgresql://admin:admin@localhost:5432/sink_db"
 )
@@ -25,7 +25,7 @@ engine = create_engine(DATABASE_URL)
 Base = declarative_base()
 
 
-# Enum for operation types
+# Enum for operation types - 'op': c / u / d
 class OperationType(enum.Enum):
     INSERT = "INSERT"
     UPDATE = "UPDATE"
@@ -39,7 +39,7 @@ class AuditLogging(Base):
     id = Column(Integer, primary_key=True)
     source_table = Column(String, nullable=False)
     operation_type = Column(Enum(OperationType), nullable=False)
-    change_timestamp = Column(DateTime, default=func.now())
+    change_timestamp = Column(DateTime, default=func.now()) # try using the ts_ms field
     old_data = Column(JSON)
     new_data = Column(JSON)
     change_user = Column(String)
@@ -51,7 +51,7 @@ class AuditLogging(Base):
         )
 
 
-# Kafka Offset Tracking Table
+# Kafka Offset tracking table
 class KafkaOffset(Base):
     __tablename__ = "kafka_offsets"
 
