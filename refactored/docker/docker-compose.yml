@@ -1,0 +1,299 @@
+version: '3.8'
+
+services:
+  # Apache ZooKeeper - distributed coordination service
+  zookeeper:
+    image: bitnami/zookeeper:3.9.1
+    container_name: cdc_audit_zookeeper
+    tmpfs: "/zktmp"
+    environment:
+      ALLOW_ANONYMOUS_LOGIN: 'yes'
+    ports:
+      - "2181:2181"
+    networks:
+      - cdc_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Apache Kafka - distributed streaming platform
+  kafka:
+    image: bitnami/kafka:3.7.0
+    container_name: cdc_audit_kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_CFG_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_CFG_LISTENERS: INTERNAL://:9092,EXTERNAL://0.0.0.0:29092
+      KAFKA_CFG_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:29092
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_CFG_NUM_PARTITIONS: 3
+      KAFKA_CFG_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      ALLOW_PLAINTEXT_LISTENER: 'yes'
+      # Performance tuning
+      KAFKA_CFG_LOG_RETENTION_HOURS: 168  # 7 days
+      KAFKA_CFG_LOG_SEGMENT_BYTES: 1073741824  # 1GB
+      KAFKA_CFG_LOG_RETENTION_CHECK_INTERVAL_MS: 300000  # 5 minutes
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    volumes:
+      - kafka_data:/bitnami/kafka
+    networks:
+      - cdc_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions.sh", "--bootstrap-server", "localhost:9092"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Kafka UI - web interface for Kafka management
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: cdc_audit_kafka_ui
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+      DYNAMIC_CONFIG_ENABLED: 'true'
+    networks:
+      - cdc_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Debezium Connect - CDC connector platform
+  connect:
+    image: debezium/connect:2.7.3.Final
+    container_name: cdc_audit_connect
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      BOOTSTRAP_SERVERS: kafka:9092
+      GROUP_ID: 1
+      CONFIG_STORAGE_TOPIC: debezium_configs
+      OFFSET_STORAGE_TOPIC: debezium_offsets
+      STATUS_STORAGE_TOPIC: debezium_status
+      KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+      # Performance and reliability settings
+      OFFSET_FLUSH_INTERVAL_MS: 10000
+      OFFSET_FLUSH_TIMEOUT_MS: 5000
+      HEARTBEAT_INTERVAL_MS: 3000
+      SESSION_TIMEOUT_MS: 30000
+      # Plugin path
+      PLUGIN_PATH: /usr/share/java,/usr/share/confluent-hub-components
+    ports:
+      - "8083:8083"
+    networks:
+      - cdc_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8083"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # PostgreSQL - source database
+  postgres:
+    image: postgres:15-alpine
+    container_name: cdc_audit_postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-admin}
+      POSTGRES_DB: ${POSTGRES_DB:-database}
+    command: >
+      postgres -c wal_level=logical
+               -c max_wal_senders=10
+               -c wal_keep_size=64MB
+               -c hot_standby=on
+               -c max_replication_slots=10
+               -c wal_sender_timeout=60s
+               -c checkpoint_timeout=15min
+               -c maintenance_work_mem=256MB
+               -c shared_preload_libraries=pg_stat_statements
+               -c pg_stat_statements.max=10000
+               -c pg_stat_statements.track=all
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db:/docker-entrypoint-initdb.d
+    networks:
+      - cdc_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-admin} -d ${POSTGRES_DB:-database}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # pgAdmin - PostgreSQL administration interface
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: cdc_audit_pgadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@pgadmin.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'False'
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    networks:
+      - cdc_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/login"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # CDC Audit Consumer - main application
+  cdc-consumer:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: cdc_audit_consumer
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      # Application settings
+      - ENVIRONMENT=production
+      - DEBUG=false
+      - APP_NAME=cdc-audit-consumer
+
+      # Kafka settings
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - KAFKA_GROUP_ID=cdc_audit_consumer
+      - KAFKA_AUTO_OFFSET_RESET=earliest
+
+      # Database settings
+      - SINK_DB_HOST=postgres
+      - SINK_DB_PORT=5432
+      - SINK_DB_USERNAME=${POSTGRES_USER:-admin}
+      - SINK_DB_PASSWORD=${POSTGRES_PASSWORD:-admin}
+      - SINK_DB_NAME=sink_db
+
+      # Source database settings
+      - SOURCE_DB_HOST=postgres
+      - SOURCE_DB_PORT=5432
+      - SOURCE_DB_USERNAME=${POSTGRES_USER:-admin}
+      - SOURCE_DB_PASSWORD=${POSTGRES_PASSWORD:-admin}
+      - SOURCE_DB_NAME=source_db
+
+      # Logging settings
+      - LOG_LEVEL=INFO
+      - LOG_STRUCTURED=true
+      - LOG_TO_FILE=true
+      - LOG_FILE_PATH=/app/logs/cdc_consumer.log
+
+      # Monitoring settings
+      - MONITORING_ENABLED=true
+      - METRICS_PORT=8000
+      - HEALTH_CHECK_PORT=8001
+      - PROMETHEUS_ENABLED=true
+
+      # Consumer settings
+      - CDC_TOPICS=source_db.public.people,source_db.public.roles
+      - CDC_BATCH_SIZE=100
+      - CDC_MAX_RETRIES=3
+
+    ports:
+      - "8000:8000"   # Metrics
+      - "8001:8001"   # Health checks
+    volumes:
+      - consumer_logs:/app/logs
+    networks:
+      - cdc_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  kafka_data:
+    driver: local
+  postgres_data:
+    driver: local
+  pgadmin_data:
+    driver: local
+  consumer_logs:
+    driver: local
+
+networks:
+  cdc_network:
+    driver: bridge
+    name: cdc_audit_network

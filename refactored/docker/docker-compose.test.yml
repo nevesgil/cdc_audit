@@ -1,0 +1,138 @@
+# Test environment configuration
+# Use with: docker-compose -f docker-compose.yml -f docker-compose.test.yml up
+
+version: '3.8'
+
+services:
+  # Test database (separate from development/production)
+  postgres-test:
+    image: postgres:15-alpine
+    container_name: cdc_audit_postgres_test
+    environment:
+      POSTGRES_USER: test_admin
+      POSTGRES_PASSWORD: test_admin
+      POSTGRES_DB: test_database
+    command: >
+      postgres -c wal_level=logical
+               -c max_wal_senders=5
+               -c wal_keep_size=32MB
+               -c hot_standby=on
+               -c max_replication_slots=5
+    ports:
+      - "5434:5432"  # Different port for testing
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+      - ./init-db:/docker-entrypoint-initdb.d
+    networks:
+      - cdc_network
+    tmpfs:
+      - /tmp
+      - /var/run/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test_admin -d test_database"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  # Test Kafka cluster
+  kafka-test:
+    image: bitnami/kafka:3.7.0
+    container_name: cdc_audit_kafka_test
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: 2
+      KAFKA_CFG_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_CFG_LISTENERS: INTERNAL://:9093,EXTERNAL://0.0.0.0:29093
+      KAFKA_CFG_ADVERTISED_LISTENERS: INTERNAL://kafka-test:9093,EXTERNAL://localhost:29093
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_CFG_NUM_PARTITIONS: 1
+      KAFKA_CFG_DEFAULT_REPLICATION_FACTOR: 1
+      ALLOW_PLAINTEXT_LISTENER: 'yes'
+    ports:
+      - "9093:9093"
+      - "29093:29093"
+    volumes:
+      - kafka_test_data:/bitnami/kafka
+    networks:
+      - cdc_network
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions.sh", "--bootstrap-server", "localhost:9093"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # Test consumer
+  cdc-consumer-test:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: cdc_audit_consumer_test
+    depends_on:
+      kafka-test:
+        condition: service_healthy
+      postgres-test:
+        condition: service_healthy
+    environment:
+      - ENVIRONMENT=testing
+      - DEBUG=true
+      - APP_NAME=cdc-audit-consumer-test
+
+      # Test Kafka settings
+      - KAFKA_BOOTSTRAP_SERVERS=kafka-test:9093
+      - KAFKA_GROUP_ID=cdc_audit_consumer_test
+      - KAFKA_AUTO_OFFSET_RESET=earliest
+
+      # Test database settings
+      - SINK_DB_HOST=postgres-test
+      - SINK_DB_PORT=5432
+      - SINK_DB_USERNAME=test_admin
+      - SINK_DB_PASSWORD=test_admin
+      - SINK_DB_NAME=sink_db
+
+      - SOURCE_DB_HOST=postgres-test
+      - SOURCE_DB_PORT=5432
+      - SOURCE_DB_USERNAME=test_admin
+      - SOURCE_DB_PASSWORD=test_admin
+      - SOURCE_DB_NAME=source_db
+
+      # Test logging
+      - LOG_LEVEL=DEBUG
+      - LOG_STRUCTURED=false
+
+      # Test monitoring
+      - MONITORING_ENABLED=true
+      - METRICS_PORT=8002
+      - HEALTH_CHECK_PORT=8003
+
+      # Test consumer settings
+      - CDC_TOPICS=test_db.public.test_people,test_db.public.test_roles
+      - CDC_BATCH_SIZE=10
+      - CDC_MAX_RETRIES=1
+
+    ports:
+      - "8002:8002"   # Test metrics
+      - "8003:8003"   # Test health checks
+    volumes:
+      - consumer_test_logs:/app/logs
+    networks:
+      - cdc_network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8003/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 2
+      start_period: 30s
+
+volumes:
+  postgres_test_data:
+    driver: local
+  kafka_test_data:
+    driver: local
+  consumer_test_logs:
+    driver: local

@@ -1,0 +1,105 @@
+# Development overrides for docker-compose.yml
+# This file is automatically merged with docker-compose.yml in development
+
+version: '3.8'
+
+services:
+  # Development version of CDC consumer with volume mounting
+  cdc-consumer:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: development
+    volumes:
+      - ../src:/app/src:ro
+      - consumer_logs:/app/logs
+      - ../tests:/app/tests:ro
+    environment:
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - LOG_LEVEL=DEBUG
+      - LOG_STRUCTURED=false
+      - HOT_RELOAD=true
+      - SQL_ECHO=true
+    command: ["python", "-m", "src.main"]
+    profiles:
+      - dev
+
+  # Add development database with additional tools
+  postgres-dev:
+    image: postgres:15-alpine
+    container_name: cdc_audit_postgres_dev
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: database
+    command: >
+      postgres -c wal_level=logical
+               -c max_wal_senders=10
+               -c wal_keep_size=64MB
+               -c hot_standby=on
+               -c max_replication_slots=10
+               -c wal_sender_timeout=60s
+               -c checkpoint_timeout=15min
+               -c maintenance_work_mem=256MB
+               -c shared_preload_libraries=pg_stat_statements,auto_explain
+               -c pg_stat_statements.max=10000
+               -c pg_stat_statements.track=all
+               -c auto_explain.log_min_duration=100ms
+               -c auto_explain.log_nested_statements=on
+    ports:
+      - "5433:5432"  # Different port to avoid conflicts
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+      - ./init-db:/docker-entrypoint-initdb.d
+    networks:
+      - cdc_network
+    profiles:
+      - dev
+
+  # Additional monitoring stack for development
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: cdc_audit_prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - cdc_network
+    profiles:
+      - monitoring
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: cdc_audit_grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks:
+      - cdc_network
+    profiles:
+      - monitoring
+
+volumes:
+  postgres_dev_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local

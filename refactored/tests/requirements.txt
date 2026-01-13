@@ -1,0 +1,31 @@
+# Testing dependencies for CDC Audit System
+
+# Core testing framework
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.0.0
+
+# Test fixtures and utilities
+pytest-mock>=3.10.0
+pytest-xdist>=3.0.0  # For parallel test execution
+
+# Test data generation
+faker>=15.0.0
+
+# Mock and patching
+responses>=0.23.0
+freezegun>=1.2.0  # Time mocking
+
+# Code quality in tests
+pytest-flake8>=1.1.0
+pytest-black>=0.3.0
+
+# Performance testing
+pytest-benchmark>=4.0.0
+
+# Integration test helpers
+testcontainers>=3.7.0  # For Docker-based integration tests
+docker>=6.0.0
+
+# Additional test utilities
+hypothesis>=6.0.0  # Property-based testing
